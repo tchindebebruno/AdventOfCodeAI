@@ -3,6 +3,21 @@ from bs4 import BeautifulSoup
 from openai import OpenAI
 import anthropic
 import subprocess
+import google.generativeai as genai
+import os
+
+# =========================
+# 0. Modèles & config
+# =========================
+
+# CLAUDE_MODEL = "claude-haiku-4-5"
+CLAUDE_MODEL = "claude-sonnet-4-20250514"
+GPT_MODEL = "o3-mini"
+GEMINI_MODEL = "gemini-2.5-pro"
+
+# Config Gemini (nécessite GEMINI_API_KEY dans les variables d'env)
+genai.configure(api_key=os.environ.get("GEMINI_API_KEY", ""))
+
 
 # =========================
 # 1. Scraping
@@ -57,27 +72,46 @@ def read_text_file(path, encoding="utf-8"):
 # 3. Clients LLM
 # =========================
 
-openai_client = OpenAI()           # utilise OPENAI_API_KEY
-claude_client = anthropic.Anthropic()  # utilise ANTHROPIC_API_KEY
+openai_client = OpenAI()                # utilise OPENAI_API_KEY
+claude_client = anthropic.Anthropic()   # utilise ANTHROPIC_API_KEY
+gemini_model = genai.GenerativeModel(GEMINI_MODEL)  # utilise GEMINI_API_KEY
 
 
 COMMON_INSTRUCTION = """
-Tu es un expert en Advent of Code, parsing de texte et algorithmique.
+You are an expert in Advent of Code, text parsing, and algorithms.
 
-TÂCHE :
-- Écris un script Python 3 COMPLET.
-- Le script doit LIRE l'input depuis stdin (par exemple via sys.stdin.read()).
-- Il doit PARSER l'input tel que décrit dans le problème.
-- Il doit CALCULER la réponse attendue pour la PARTIE 1.
-- Il doit AFFICHER UNIQUEMENT la réponse finale avec un print.
-- Pas de texte explicatif, pas de commentaires, pas de logging superflu.
+TASK:
+- Write a COMPLETE Python 3 script.
+- The script must READ the input from stdin (e.g., using sys.stdin.read()).
+- It must PARSE the input exactly as described in the problem.
+- It must COMPUTE the required answer for PART 1.
+- It must PRINT ONLY the final answer.
+- No extra output of any kind is allowed.
 
-IMPORTANT :
-- Ne mets PAS de ``` autour du code.
-- Ne mets PAS d'explications autour. Seulement du code Python exécutable.
+OUTPUT CONSTRAINTS (VERY IMPORTANT):
+- Your response must contain ONLY raw Python code, directly executable.
+- Do NOT include any markdown code fences: no ``` and no ```python, and no backticks at all.
+- Do NOT include any explanations, comments, logging, or prose.
+- Absolutely no text outside the Python code.
+
+SUMMARY:
+- Response = only a full Python 3 script, with zero markdown, zero backticks, and zero surrounding text.
 """
 
+def remove_code_fences(text):
+    lines = text.strip().splitlines()
 
+    cleaned = []
+    for line in lines:
+        stripped = line.strip()
+
+        # Ignore lines that are code fences like ``` or ```python or ```anything
+        if stripped.startswith("```"):
+            continue
+
+        cleaned.append(line)
+
+    return "\n".join(cleaned)
 # =========================
 # 3.a Génération de code avec ChatGPT (OpenAI)
 # =========================
@@ -96,7 +130,7 @@ Voici l'énoncé du problème (incluant éventuellement des exemples) :
 """
 
     response = openai_client.responses.create(
-        model="gpt-4.1",  # ou "gpt-5.1" selon ton compte
+        model=GPT_MODEL,
         input=[{"role": "user", "content": prompt}],
     )
 
@@ -122,8 +156,8 @@ Voici l'énoncé du problème (incluant éventuellement des exemples) :
 """
 
     resp = claude_client.messages.create(
-        model="claude-sonnet-4-20250514",  # adapte si besoin
-        max_tokens=4096,
+        model=CLAUDE_MODEL,
+        max_tokens=8192,
         messages=[
             {
                 "role": "user",
@@ -132,12 +166,36 @@ Voici l'énoncé du problème (incluant éventuellement des exemples) :
         ],
     )
 
-    # Anthropic renvoie une liste de blocks ; on concatène les blocs de type "text"
     parts = []
     for block in resp.content:
         if block.type == "text":
             parts.append(block.text)
     code = "".join(parts)
+    return code
+
+
+# =========================
+# 3.c Génération de code avec Gemini
+# =========================
+
+def generate_solver_code_gemini(problem_statement: str) -> str:
+    """
+    Demande à Gemini de générer un script Python solveur.
+    """
+
+    prompt = f"""
+{COMMON_INSTRUCTION}
+
+Voici l'énoncé du problème (incluant éventuellement des exemples) :
+
+{problem_statement}
+"""
+
+    resp = gemini_model.generate_content(prompt)
+
+    # Sur le client google.generativeai, le texte principal est en resp.text
+    code = resp.text or ""
+    code = remove_code_fences(code)
     return code
 
 
@@ -176,18 +234,17 @@ def execute_generated_code(input_text: str, filename: str) -> str:
 
 
 # =========================
-# 6. Pipeline complet AoC (Partie 1, duel ChatGPT vs Claude)
+# 6. Pipeline complet AoC (Partie 1, duel/truel Claude vs ChatGPT vs Gemini)
 # =========================
 
-def solve_advent_of_code_with_both(problem_url: str, input_path: str):
+def solve_advent_of_code_with_all(problem_url: str, input_path: str):
     """
     - Scrap l'énoncé AoC
     - Lit l'input local
-    - Demande à ChatGPT de générer un solver Python
-    - Demande à Claude de générer un solver Python
-    - Sauvegarde les deux solvers
-    - Exécute les deux solvers sur le même input
-    - Affiche les deux réponses
+    - Demande à Claude, ChatGPT et Gemini de générer chacun un solver Python
+    - Sauvegarde les trois solvers
+    - Exécute les trois solvers sur le même input
+    - Affiche les trois réponses
     """
     selector = "article.day-desc"
 
@@ -219,13 +276,25 @@ def solve_advent_of_code_with_both(problem_url: str, input_path: str):
     result_chatgpt = execute_generated_code(input_text, filename_chatgpt)
     print("Résultat ChatGPT :", result_chatgpt)
 
+    # ---- Gemini ----
+    print("\nGénération du code solveur PARTIE 1 avec Gemini...\n")
+    code_gemini = generate_solver_code_gemini(problem_text)
+    filename_gemini = "solution_gemini.py"
+    save_code_to_file(code_gemini, filename_gemini)
+    print(f"Code Gemini généré et sauvegardé dans {filename_gemini}\n")
+
+    print("Exécution du solveur Gemini sur l'input...\n")
+    result_gemini = execute_generated_code(input_text, filename_gemini)
+    print("Résultat Gemini :", result_gemini)
+
     # ---- Résumé ----
     print("\n===== RÉPONSES FINALES PARTIE 1 =====")
     print(f"ChatGPT : {result_chatgpt}")
     print(f"Claude  : {result_claude}")
+    print(f"Gemini  : {result_gemini}")
     print("=====================================")
 
-    return result_chatgpt, result_claude
+    return result_chatgpt, result_claude, result_gemini
 
 
 # =========================
@@ -236,4 +305,4 @@ if __name__ == "__main__":
     url = "https://adventofcode.com/2025/day/3"
     input_file = "input.txt"
 
-    solve_advent_of_code_with_both(url, input_file)
+    solve_advent_of_code_with_all(url, input_file)

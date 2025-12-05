@@ -11,11 +11,11 @@ from google.api_core.exceptions import GoogleAPIError
 # 1. Modèles & Scraping
 # =========================
 CLAUDE_MODEL = "claude-sonnet-4-20250514"
-GPT_MODEL = "o3-mini"
-GEMINI_MODEL = "gemini-2.5-pro" # modèle Gemini le plus safe avec v1beta/generativeai
+GPT_MODEL = "o3"
+GEMINI_MODEL = "gemini-2.5-flash"
 
 # Config Gemini (utilise GEMINI_API_KEY)
-genai.configure(api_key=os.environ.get("GEMINI_API_KEY", ""))
+genai.configure(api_key=os.environ.get("GOOGLE_API_KEY", ""))
 gemini_model = genai.GenerativeModel(GEMINI_MODEL)
 
 
@@ -87,23 +87,37 @@ openai_client = OpenAI()                 # utilise OPENAI_API_KEY
 claude_client = anthropic.Anthropic()    # utilise ANTHROPIC_API_KEY
 
 COMMON_INSTRUCTION_PART2 = """
-Tu es un expert en Advent of Code, parsing de texte et algorithmique.
+You are an expert in Advent of Code, text parsing, and algorithms.
 
-Le problème se compose de deux parties.
-La partie 1 définit les règles de base, la partie 2 les modifie / complète.
+The problem consists of two parts.
+Part 1 defines the base rules.
+Part 2 modifies or extends those rules.
 
-TÂCHE :
-- Écris un script Python 3 COMPLET.
-- Le script doit LIRE l'input depuis stdin (par exemple via sys.stdin.read()).
-- Il doit PARSER l'input tel que décrit dans le problème.
-- Il doit CALCULER la réponse attendue pour la PARTIE 2 uniquement,
-  en tenant compte des règles de la partie 1 modifiées/complétées par la partie 2.
-- Il doit AFFICHER UNIQUEMENT la réponse finale avec un print.
-- Pas de texte explicatif, pas de commentaires, pas de logging superflu.
+TASK:
 
-IMPORTANT :
-- Ne mets PAS de ``` autour du code.
-- Ne mets PAS d'explications autour. Seulement du code Python exécutable.
+Write a COMPLETE Python 3 script.
+
+The script must READ the input from stdin (e.g., using sys.stdin.read()).
+
+It must PARSE the input exactly as described in the problem.
+
+It must COMPUTE the correct answer for PART 2 ONLY, applying the rules from Part 1 as modified or extended by Part 2.
+
+It must PRINT ONLY the final answer.
+
+No explanatory text, no comments, no debug logs.
+
+OUTPUT CONSTRAINTS (CRITICAL):
+
+Do NOT include any markdown code fences: no , nopython , and no backticks at all.
+
+Do NOT include any explanations or surrounding text.
+
+The response must be ONLY raw executable Python code.
+
+SUMMARY:
+
+Output = a single fully executable Python 3 script, with zero markdown, zero prose, and zero extraneous characters.
 """
 
 
@@ -259,6 +273,21 @@ def solve_advent_of_code_part2_with_all(problem_url: str, input_path: str, part2
     print("Lecture de l'input depuis :", input_path)
     input_text = read_text_file(input_path)
 
+     # ========= ChatGPT =========
+    result_gpt = None
+    try:
+        print("\n=== [ChatGPT] Génération du code solveur PARTIE 2... ===\n")
+        code_gpt = generate_solver_code_gpt_part2(problem_part1_text, problem_part2_text)
+        filename_gpt = "generated_solution_part2_gpt.py"
+        save_code_to_file(code_gpt, filename_gpt)
+        print(f"[ChatGPT] Code généré et sauvegardé dans {filename_gpt}\n")
+
+        print("[ChatGPT] Exécution du solveur sur l'input...\n")
+        result_gpt = execute_generated_code(input_text, filename_gpt)
+        print(f"[ChatGPT] Réponse : {result_gpt}\n")
+    except Exception as e:
+        print(f"❌ Erreur pipeline ChatGPT PARTIE 2 : {e}")
+
     # ========= Claude =========
     result_claude = None
     try:
@@ -273,21 +302,6 @@ def solve_advent_of_code_part2_with_all(problem_url: str, input_path: str, part2
         print(f"[Claude] Réponse : {result_claude}\n")
     except Exception as e:
         print(f"❌ Erreur pipeline Claude PARTIE 2 : {e}")
-
-    # ========= ChatGPT =========
-    result_gpt = None
-    try:
-        print("\n=== [ChatGPT] Génération du code solveur PARTIE 2... ===\n")
-        code_gpt = generate_solver_code_gpt_part2(problem_part1_text, problem_part2_text)
-        filename_gpt = "generated_solution_part2_gpt.py"
-        save_code_to_file(code_gpt, filename_gpt)
-        print(f"[ChatGPT] Code généré et sauvegardé dans {filename_gpt}\n")
-
-        print("[ChatGPT] Exécution du solveur sur l'input...\n")
-        result_gpt = execute_generated_code(input_text, filename_gpt)
-        print(f"[ChatGPT] Réponse : {result_gpt}\n")
-    except Exception as e:
-        print(f"❌ Erreur pipeline ChatGPT PARTIE 2 : {e}")
 
     # ========= Gemini =========
     result_gemini = None
@@ -323,7 +337,7 @@ def solve_advent_of_code_part2_with_all(problem_url: str, input_path: str, part2
 # =========================
 
 if __name__ == "__main__":
-    url = "https://adventofcode.com/2025/day/3"
+    url = "https://adventofcode.com/2025/day/5"
     input_file = "input.txt"
     part2_file = "enonce2.txt"   # fichier où tu as collé l'énoncé de la partie 2
 

@@ -4,6 +4,7 @@ from openai import OpenAI
 import anthropic
 import subprocess
 import google.generativeai as genai
+from playwright.sync_api import sync_playwright
 import os
 
 # =========================
@@ -12,16 +13,67 @@ import os
 
 # CLAUDE_MODEL = "claude-haiku-4-5"
 CLAUDE_MODEL = "claude-sonnet-4-20250514"
-GPT_MODEL = "o3-mini"
-GEMINI_MODEL = "gemini-2.5-pro"
+GPT_MODEL = "o3"
+# GEMINI_MODEL = "gemini-2.5-pro"
+GEMINI_MODEL = "gemini-2.5-flash"
 
 # Config Gemini (nécessite GEMINI_API_KEY dans les variables d'env)
-genai.configure(api_key=os.environ.get("GEMINI_API_KEY", ""))
+genai.configure(api_key=os.environ.get("GOOGLE_API_KEY", ""))
 
 
 # =========================
 # 1. Scraping
 # =========================
+
+def fetch_and_save_to_file(url: str, selector: str, output_file: str = "input.txt") -> None:
+    """
+    Ouvre une page avec la session edge_state.json,
+    récupère le texte du selecteur CSS donné
+    et l'ajoute à output_file.
+    """
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        context = browser.new_context(storage_state="edge_state.json")
+
+        page = context.new_page()
+
+        # On récupère la réponse principale
+        response = page.goto(url)
+
+        # Petit délai si la page charge du JS
+        page.wait_for_timeout(2000)
+
+        if not response:
+            print("❓ Impossible d'obtenir la réponse principale")
+        else:
+            print("✅ Statut HTTP :", response.status)
+
+        print("🌐 URL finale :", page.url)
+
+        # Récupération du contenu via le sélecteur
+        if selector:
+            locator = page.locator(selector)
+            count = locator.count()
+            if count == 0:
+                print(f"⚠️ Aucun élément trouvé pour le sélecteur : {selector}")
+                content = ""
+            else:
+                # On concatène tous les innerText trouvés
+                texts = locator.all_inner_texts()
+                content = "\n".join(t.strip() for t in texts if t.strip())
+        else:
+            # Si pas de sélecteur, on prend tout le texte de la page
+            content = page.inner_text("body")
+
+        # On écrit dans le fichier en mode append
+        if content:
+            with open(output_file, "w", encoding="utf-8") as f:
+                f.write(content)
+            print(f"💾 Contenu ajouté à {output_file}")
+        else:
+            print("⚠️ Aucun contenu à écrire dans le fichier.")
+
+        browser.close()
 
 def scrape_text(url, selector=None):
     """
@@ -254,6 +306,17 @@ def solve_advent_of_code_with_all(problem_url: str, input_path: str):
     print("Lecture de l'input depuis :", input_path)
     input_text = read_text_file(input_path)
 
+    # ---- ChatGPT ----
+    print("\nGénération du code solveur PARTIE 1 avec ChatGPT...\n")
+    code_chatgpt = generate_solver_code_chatgpt(problem_text)
+    filename_chatgpt = "solution_chatgpt.py"
+    save_code_to_file(code_chatgpt, filename_chatgpt)
+    print(f"Code ChatGPT généré et sauvegardé dans {filename_chatgpt}\n")
+
+    print("Exécution du solveur ChatGPT sur l'input...\n")
+    result_chatgpt = execute_generated_code(input_text, filename_chatgpt)
+    print("Résultat ChatGPT :", result_chatgpt)
+
     # ---- Claude ----
     print("\nGénération du code solveur PARTIE 1 avec Claude...\n")
     code_claude = generate_solver_code_claude(problem_text)
@@ -265,16 +328,7 @@ def solve_advent_of_code_with_all(problem_url: str, input_path: str):
     result_claude = execute_generated_code(input_text, filename_claude)
     print("Résultat Claude :", result_claude)
 
-    # ---- ChatGPT ----
-    print("\nGénération du code solveur PARTIE 1 avec ChatGPT...\n")
-    code_chatgpt = generate_solver_code_chatgpt(problem_text)
-    filename_chatgpt = "solution_chatgpt.py"
-    save_code_to_file(code_chatgpt, filename_chatgpt)
-    print(f"Code ChatGPT généré et sauvegardé dans {filename_chatgpt}\n")
-
-    print("Exécution du solveur ChatGPT sur l'input...\n")
-    result_chatgpt = execute_generated_code(input_text, filename_chatgpt)
-    print("Résultat ChatGPT :", result_chatgpt)
+   
 
     # ---- Gemini ----
     print("\nGénération du code solveur PARTIE 1 avec Gemini...\n")
@@ -302,7 +356,12 @@ def solve_advent_of_code_with_all(problem_url: str, input_path: str):
 # =========================
 
 if __name__ == "__main__":
-    url = "https://adventofcode.com/2025/day/3"
+    url = "https://adventofcode.com/2025/day/5"
     input_file = "input.txt"
-
+    print("Obtention de l'input et résolution du problème...")
+    # fetch_and_save_to_file(
+    #     f"{url}/input",
+    #     selector="pre",
+    #     output_file=input_file
+    # )
     solve_advent_of_code_with_all(url, input_file)

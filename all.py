@@ -358,6 +358,7 @@ def solve_advent_of_code_with_all(problem_url: str, input_path: str):
 if __name__ == "__main__":
     url = "https://adventofcode.com/2025/day/5"
     input_file = "input.txt"
+    rep = input("Appuie sur Entrée pour continuer: ")
     print("Obtention de l'input et résolution du problème...")
     # fetch_and_save_to_file(
     #     f"{url}/input",
